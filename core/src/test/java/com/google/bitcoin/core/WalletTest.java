@@ -23,6 +23,7 @@ import com.google.bitcoin.signers.StatelessTransactionSigner;
 import com.google.bitcoin.signers.TransactionSigner;
 import com.google.bitcoin.store.BlockStoreException;
 import com.google.bitcoin.store.MemoryBlockStore;
+import com.google.bitcoin.store.UnreadableWalletException;
 import com.google.bitcoin.store.WalletProtobufSerializer;
 import com.google.bitcoin.testing.*;
 import com.google.bitcoin.utils.ExchangeRate;
@@ -2342,8 +2343,7 @@ public class WalletTest extends TestWithWallet {
         // We don't attempt to race an attacker against unconfirmed transactions.
 
         // Now round-trip the wallet and check the protobufs are storing the data correctly.
-        Protos.Wallet protos = new WalletProtobufSerializer().walletToProto(wallet);
-        wallet = new WalletProtobufSerializer().readWallet(params, null, protos);
+        wallet = roundtripWalletThroughProtobuf(wallet);
 
         tx = wallet.getTransaction(tx.getHash());
         checkNotNull(tx);
@@ -2356,6 +2356,11 @@ public class WalletTest extends TestWithWallet {
         wallet.sendCoins(broadcaster, address, wallet.getBalance());
         tx = broadcaster.waitForTransaction();
         assertArrayEquals(address.getHash160(), tx.getOutput(0).getScriptPubKey().getPubKeyHash());
+    }
+
+    private Wallet roundtripWalletThroughProtobuf(Wallet wallet) throws UnreadableWalletException {
+        Protos.Wallet protos = new WalletProtobufSerializer().walletToProto(wallet);
+        return new WalletProtobufSerializer().readWallet(params, null, protos);
     }
 
     @Test
@@ -2680,5 +2685,124 @@ public class WalletTest extends TestWithWallet {
         sendRequest.memo = "memo";
         wallet.completeTx(sendRequest);
         assertEquals(sendRequest.memo, sendRequest.tx.getMemo());
+    }
+
+    @Test
+    public void evictionConditionsLightlyBuried() throws Exception {
+        final Transaction tx = createFakeTx(params, Coin.CENT, myAddress);
+        sendMoneyToWallet(tx, AbstractBlockChain.NewBlockType.BEST_CHAIN);
+
+        // fail to evict tx with no confidence
+        wallet.trim(0);
+        assertEquals(1, wallet.unspent.size());
+        assertEquals(0, wallet.spent.size());
+
+        // fail to evict unspent tx with low number of blockchain confirms
+        tx.getConfidence().setDepthInBlocks(144); // a day
+        wallet.trim(0);
+        assertEquals(1, wallet.unspent.size());
+        assertEquals(0, wallet.spent.size());
+
+        // fail to evict spent tx with low number of blockchain confirms
+        final Address intoTheVoid = new ECKey().toAddress(params);
+        final Wallet.SendRequest req = Wallet.SendRequest.to(intoTheVoid, Coin.CENT);
+        wallet.completeTx(req);
+        wallet.commitTx(req.tx);
+        wallet.trim(0);
+        assertEquals(0, wallet.unspent.size());
+        assertEquals(1, wallet.spent.size());
+    }
+
+    @Test
+    public void evictionConditionsDeeplyBuried() throws Exception {
+        final Transaction tx = createFakeTx(params, Coin.CENT, myAddress);
+        sendMoneyToWallet(tx, AbstractBlockChain.NewBlockType.BEST_CHAIN);
+        tx.getConfidence().setDepthInBlocks(10000); // two months
+
+        // fail to evict tx with no confidence
+        wallet.trim(0);
+        assertEquals(1, wallet.unspent.size());
+        assertEquals(0, wallet.spent.size());
+
+        // fail to evict unspent tx with low number of blockchain confirms
+        wallet.trim(0);
+        assertEquals(1, wallet.unspent.size());
+        assertEquals(0, wallet.spent.size());
+
+        // SUCCEED to evict spent tx with low number of blockchain confirms
+        final Address intoTheVoid = new ECKey().toAddress(params);
+        final Wallet.SendRequest req = Wallet.SendRequest.to(intoTheVoid, Coin.CENT);
+        wallet.completeTx(req);
+        wallet.commitTx(req.tx);
+        wallet.trim(0);
+        assertEquals(0, wallet.unspent.size());
+        assertEquals(0, wallet.spent.size());
+    }
+
+    @Test
+    public void evictCorrectAmounts() throws Exception {
+        // create 3 eviction candidates
+        final Transaction tx1 = createFakeTx(params, Coin.CENT, myAddress);
+        sendMoneyToWallet(tx1, AbstractBlockChain.NewBlockType.BEST_CHAIN);
+        final Transaction tx2 = createFakeTx(params, Coin.CENT, myAddress);
+        sendMoneyToWallet(tx2, AbstractBlockChain.NewBlockType.BEST_CHAIN);
+        final Transaction tx3 = createFakeTx(params, Coin.CENT, myAddress);
+        sendMoneyToWallet(tx3, AbstractBlockChain.NewBlockType.BEST_CHAIN);
+        final Address intoTheVoid = new ECKey().toAddress(params);
+        final Wallet.SendRequest req = Wallet.SendRequest.to(intoTheVoid, Coin.CENT.multiply(3));
+        wallet.sendCoinsOffline(req);
+        wallet.pending.clear(); // should not get in the way of counting
+        tx1.getConfidence().setDepthInBlocks(10000);
+        tx2.getConfidence().setDepthInBlocks(10000);
+        tx3.getConfidence().setDepthInBlocks(10000);
+        assertEquals(0, wallet.unspent.size());
+        assertEquals(3, wallet.spent.size());
+
+        // path "nothing to worry about"
+        wallet.trim(4);
+        assertEquals(0, wallet.unspent.size());
+        assertEquals(3, wallet.spent.size());
+
+        // path "more eviction candidates than needed"
+        wallet.trim(2);
+        assertEquals(0, wallet.unspent.size());
+        assertEquals(2, wallet.spent.size());
+
+        // path "exactly as many eviction candidates as needed"
+        wallet.trim(0);
+        assertEquals(0, wallet.unspent.size());
+        assertEquals(0, wallet.spent.size());
+    }
+
+    @Test
+    public void evictAndSerialize() throws Exception {
+        final Transaction txIn = createFakeTx(params, Coin.CENT, myAddress);
+        sendMoneyToWallet(txIn, AbstractBlockChain.NewBlockType.BEST_CHAIN);
+        txIn.getConfidence().setDepthInBlocks(10000); // two months
+        final Address intoTheVoid = new ECKey().toAddress(params);
+        final Wallet.SendRequest req = Wallet.SendRequest.to(intoTheVoid, Coin.CENT);
+        final Transaction txOut = wallet.sendCoinsOffline(req);
+        final Block block = FakeTxBuilder.makeSolvedTestBlock(chain.getChainHead().getHeader(), txOut);
+        chain.add(block);
+        assertEquals(0, wallet.unspent.size());
+        assertEquals(2, wallet.spent.size());
+        assertEquals(Coin.ZERO, txIn.getValueSentFromMe(wallet));
+        assertEquals(Coin.CENT, txIn.getValueSentToMe(wallet));
+        assertEquals(Coin.CENT, txOut.getValueSentFromMe(wallet));
+        assertEquals(Coin.ZERO, txOut.getValueSentToMe(wallet));
+        assertEquals(Coin.ZERO, wallet.getBalance());
+
+        wallet.trim(1);
+        assertEquals(0, wallet.unspent.size());
+        assertEquals(1, wallet.spent.size());
+        assertEquals(Coin.CENT, txOut.getValueSentFromMe(wallet)); // TODO this breaks at the moment!
+        assertEquals(Coin.ZERO, txOut.getValueSentToMe(wallet));
+        assertEquals(Coin.ZERO, wallet.getBalance());
+
+        wallet = roundtripWalletThroughProtobuf(wallet);
+        assertEquals(0, wallet.unspent.size());
+        assertEquals(1, wallet.spent.size());
+        assertEquals(Coin.CENT.negate(), txOut.getValue(wallet));
+        assertEquals(Coin.ZERO, wallet.getBalance());
     }
 }

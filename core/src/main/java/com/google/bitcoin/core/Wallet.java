@@ -4430,4 +4430,70 @@ public class Wallet extends BaseTaggableObject implements Serializable, BlockCha
     public ReentrantLock getLock() {
         return lock;
     }
+
+    /**
+     * <p>Trims the wallet to a reasonable size, currently by evicting spent transactions.</p>
+     * 
+     * <p>This is an attempt to conserve memory. It can in future be extended to evicting dead and
+     * unconfirming pending transactions, used keys, and more.</p>
+     * 
+     * <p>As a general rule of thumb one transaction takes about 2 kB of heap memory.</p>
+     * 
+     * @param minTransactionsToKeep
+     *            minumum number of transactions to keep in wallet
+     */
+    public void trim(final int minTransactionsToKeep) {
+        lock.lock();
+        try {
+            // Determine number of transactions to evict.
+            final int constNumTransactions = pending.size() + unspent.size() + dead.size();
+            final int numTransactions = constNumTransactions + spent.size();
+            final int numToEvict = numTransactions - minTransactionsToKeep;
+
+            log.info("wallet has {} transactions and should have no more than {} transactions",
+                    numTransactions, minTransactionsToKeep);
+
+            if (numToEvict <= 0)
+                return; // all roger, nothing to worry about
+
+            // Build up list of candidates to delete. Should be spent and buried deep enough under
+            // blocks.
+            List<Transaction> candidates = new LinkedList<Transaction>();
+            for (final Transaction tx : spent.values()) {
+                if (tx.hasConfidence() && tx.getConfidence().getDepthInBlocks() > 2016) // interval
+                    candidates.add(tx);
+            }
+            log.info("looked for {} txns to evict and found {} candidates", numToEvict,
+                    candidates.size());
+
+            if (candidates.size() == 0)
+                return; // we're too fat, but nothing can be done
+
+            // If there are more candidates than needed, make sure only the oldest get evicted.
+            if (candidates.size() > numToEvict) {
+
+                Collections.sort(candidates, new Comparator<Transaction>() {
+                    @Override
+                    public int compare(final Transaction tx1, final Transaction tx2) {
+                        return -Ints.compare(tx1.getConfidence().getDepthInBlocks(), tx2
+                                .getConfidence().getDepthInBlocks());
+                    }
+                });
+
+                candidates = candidates.subList(0, numToEvict);
+            }
+
+            // Evict transactions from spent pool. Keep pending and dead for now.
+            for (final Transaction tx : candidates)
+                spent.remove(tx.getHash());
+
+            saveNow();
+
+            log.info("evicted {} spent transactions, wallet has {} transactions after trim",
+                    candidates.size(), constNumTransactions + spent.size());
+
+        } finally {
+            lock.unlock();
+        }
+    }
 }

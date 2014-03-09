@@ -1,6 +1,7 @@
 /**
  * Copyright 2011 Google Inc.
  * Copyright 2012 Matt Corallo.
+ * Copyright 2014 Andreas Schildbach
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -415,20 +416,16 @@ public class Script {
         return decodeFromOpN((int)opcode);
     }
     static int decodeFromOpN(int opcode) {
-        checkArgument((opcode == OP_0 || opcode == OP_1NEGATE) || (opcode >= OP_1 && opcode <= OP_16), "decodeFromOpN called on non OP_N opcode");
-        if (opcode == OP_0)
-            return 0;
-        else if (opcode == OP_1NEGATE)
+        checkArgument((opcode == OP_1NEGATE) || (opcode >= OP_1 && opcode <= OP_16), "decodeFromOpN called on non OP_N opcode");
+        if (opcode == OP_1NEGATE)
             return -1;
         else
             return opcode + 1 - OP_1;
     }
 
     static int encodeToOpN(int value) {
-        checkArgument(value >= -1 && value <= 16, "encodeToOpN called for " + value + " which we cannot encode in an opcode.");
-        if (value == 0)
-            return OP_0;
-        else if (value == -1)
+        checkArgument(value == -1 || (value >= 1 && value <= 16), "encodeToOpN called for " + value + " which we cannot encode in an opcode.");
+        if (value == -1)
             return OP_1NEGATE;
         else
             return value - 1 + OP_1;

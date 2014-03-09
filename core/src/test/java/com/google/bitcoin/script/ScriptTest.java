@@ -113,7 +113,9 @@ public class ScriptTest {
             if (w.matches("^-?[0-9]*$")) {
                 // Number
                 long val = Long.parseLong(w);
-                if (val >= -1 && val <= 16)
+                if (val == 0) // there is no such smallNum
+                    out.write(0);
+                else if (val >= -1 && val <= 16)
                     out.write(Script.encodeToOpN((int)val));
                 else
                     Script.writeBytes(out, Utils.reverseBytes(Utils.encodeMPI(BigInteger.valueOf(val), false)));

@@ -53,8 +53,6 @@ public class ScriptBuilder {
     }
 
     public ScriptBuilder smallNum(int num) {
-        checkArgument(num >= 0, "Cannot encode negative numbers with smallNum");
-        checkArgument(num <= 16, "Cannot encode numbers larger than 16 with smallNum");
         chunks.add(new ScriptChunk(true, new byte[]{(byte)Script.encodeToOpN(num)}));
         return this;
     }

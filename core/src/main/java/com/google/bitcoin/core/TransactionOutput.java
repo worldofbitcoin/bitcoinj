@@ -57,6 +57,10 @@ public class TransactionOutput extends ChildMessage implements Serializable {
     private boolean availableForSpending;
     @Nullable private TransactionInput spentBy;
 
+    // The index of the output in its parent transaction. It can be either set via the constructor or be lazily determined
+    // from the parent transaction.
+    @Nullable private Integer index = null;
+
     // A reference to the transaction which holds this output, if any.
     @Nullable Transaction parentTransaction;
     private transient int scriptLen;
@@ -121,6 +125,22 @@ public class TransactionOutput extends ChildMessage implements Serializable {
         length = 8 + VarInt.sizeOf(scriptBytes.length) + scriptBytes.length;
     }
 
+    /**
+     * Creates a detached output for the case where the index is known.
+     */
+    public TransactionOutput(NetworkParameters params, int index, Coin value, byte[] scriptBytes) {
+        super(params);
+        // Negative values obviously make no sense, except for -1 which is used as a sentinel value when calculating
+        // SIGHASH_SINGLE signatures, so unfortunately we have to allow that here.
+        checkArgument(value.signum() >= 0 || value.equals(Coin.NEGATIVE_ONE), "Negative values not allowed");
+        checkArgument(value.compareTo(NetworkParameters.MAX_MONEY) < 0, "Values larger than MAX_MONEY not allowed");
+        this.index = index;
+        this.value = value;
+        this.scriptBytes = scriptBytes;
+        availableForSpending = true;
+        length = 8 + VarInt.sizeOf(scriptBytes.length) + scriptBytes.length;
+    }
+
     public Script getScriptPubKey() throws ScriptException {
         // Quick hack to try and reduce memory consumption on Androids. SoftReference is the same as WeakReference
         // on Dalvik (by design), so this arrangement just means that we can avoid the cost of re-parsing the script
@@ -178,11 +198,18 @@ public class TransactionOutput extends ChildMessage implements Serializable {
         this.value = value;
     }
 
-    int getIndex() {
-        checkNotNull(parentTransaction, "This output is not attached to a parent transaction.");
+    /**
+     * Gets the index of the output in its parent transaction.
+     */
+    public int getIndex() {
+        if (index != null)
+            return index;
+        checkNotNull(parentTransaction, "This output is not attached to a parent transaction, and has not been instantiated with a known index.");
         for (int i = 0; i < parentTransaction.getOutputs().size(); i++) {
-            if (parentTransaction.getOutputs().get(i) == this)
+            if (parentTransaction.getOutputs().get(i) == this) {
+                index = i;
                 return i;
+            }
         }
         // Should never happen.
         throw new RuntimeException("Output linked to wrong parent transaction?");

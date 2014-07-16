@@ -56,7 +56,7 @@ public class BIP38PrivateKeyTest {
     @Test
     public void bip38testvector_noCompression_noEcMultiply_test3() throws Exception {
         BIP38PrivateKey encryptedKey = new BIP38PrivateKey(MAINNET,
-                "6PRW5o9FLp4gJDDVqJQKJFTpMvdsSGJxMYHtHaQBF3ooa8mwD69bapcDQn");
+                "6PRW5o9FMb4hAYRQPmgcvVDTyDtr6R17VMXGLmvKjKVpGkYhBJ4uYuR9wZ");
         StringBuilder passphrase = new StringBuilder();
         passphrase.appendCodePoint(0x03d2); // GREEK UPSILON WITH HOOK
         passphrase.appendCodePoint(0x0301); // COMBINING ACUTE ACCENT

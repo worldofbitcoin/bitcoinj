@@ -1146,6 +1146,15 @@ public class WalletTest extends TestWithWallet {
         log.info(t2.toString(chain));
     }
 
+    @Test
+    public void isWatchingWallet() {
+        assertFalse(wallet.isWatchingWallet());
+        Wallet watchingWallet = Wallet.fromWatchingKey(params, wallet.getWatchingKey());
+        assertTrue(watchingWallet.isWatchingWallet());
+        wallet.encrypt(PASSWORD1);
+        assertFalse(wallet.isWatchingWallet());
+    }
+
     @Test(expected = ECKey.MissingPrivateKeyException.class)
     public void watchingWallet() throws Exception {
         DeterministicKey watchKey = wallet.getWatchingKey();

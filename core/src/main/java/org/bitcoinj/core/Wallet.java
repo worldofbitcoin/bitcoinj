@@ -709,6 +709,20 @@ public class Wallet extends BaseTaggableObject implements Serializable, BlockCha
     }
 
     /**
+     * Returns true if this is a watching wallet. Currently this is determinied by looking at the active chain only; it
+     * is assumed that mixed configurations are not possible.
+     */
+    public boolean isWatchingWallet() {
+        keychainLock.lock();
+        try {
+            maybeUpgradeToHD();
+            return keychain.getActiveKeyChain().isWatching();
+        } finally {
+            keychainLock.unlock();
+        }
+    }
+
+    /**
      * Return true if we are watching this address.
      */
     public boolean isAddressWatched(Address address) {

@@ -172,6 +172,11 @@ public class DefaultRiskAnalysisTest {
         assertEquals(RuleViolation.NONE,
                 DefaultRiskAnalysis.isInputStandard(new TransactionInput(params, null, scriptOk.getProgram())));
 
+        Script scriptHighS = ScriptBuilder.createInputScript(new TransactionSignature(sig.r, ECKey.CURVE.getN()
+                .subtract(sig.s)));
+        assertEquals(RuleViolation.SIGNATURE_CANONICAL_S_VALUE,
+                DefaultRiskAnalysis.isInputStandard(new TransactionInput(params, null, scriptHighS.getProgram())));
+
         byte[] sigBytes = sig.encodeToBitcoin();
         // Appending a zero byte makes the signature uncanonical without violating DER encoding.
         Script scriptUncanonicalEncoding = new ScriptBuilder().data(Arrays.copyOf(sigBytes, sigBytes.length + 1))

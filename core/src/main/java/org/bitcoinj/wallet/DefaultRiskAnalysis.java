@@ -115,7 +115,8 @@ public class DefaultRiskAnalysis implements RiskAnalysis {
         DUST,
         SHORTEST_POSSIBLE_PUSHDATA,
         NONEMPTY_STACK, // Not yet implemented (for post 0.12)
-        SIGNATURE_CANONICAL_ENCODING
+        SIGNATURE_CANONICAL_ENCODING,
+        SIGNATURE_CANONICAL_S_VALUE
     }
 
     /**
@@ -183,6 +184,8 @@ public class DefaultRiskAnalysis implements RiskAnalysis {
                 if (signature != null) {
                     if (!TransactionSignature.isEncodingCanonical(chunk.data))
                         return RuleViolation.SIGNATURE_CANONICAL_ENCODING;
+                    if (!signature.isCanonical())
+                        return RuleViolation.SIGNATURE_CANONICAL_S_VALUE;
                 }
             }
         }
